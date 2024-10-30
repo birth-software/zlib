@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  generate-config:
+    runs-on: ubuntu-latest
+    outputs:
+      BIRTH_GITHUB_TARGETS: ${{ steps.generate-config.outputs.BIRTH_GITHUB_TARGETS }}
+      BIRTH_CMAKE_BUILD_TYPES: ${{ steps.generate-config.outputs.BIRTH_CMAKE_BUILD_TYPES }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Generate config
+        id: GENERATE-CONFIG
+        uses: birth-software/github-config@v2
+  build:
+    needs: generate-config
+    strategy:
+      matrix:
+        os: ${{ fromJSON(needs.generate-config.outputs.BIRTH_GITHUB_TARGETS) }}
+        CMAKE_BUILD_TYPE: ${{ fromJSON(needs.generate-config.outputs.BIRTH_CMAKE_BUILD_TYPES) }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: birth-software/github-setup@v2
+      - name: Build
+        shell: bash
+        run: |
+          set -ex
+          cmake . -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_ASM_COMPILER=clang -DCMAKE_INSTALL_PREFIX="zlib" -DCMAKE_BUILD_TYPE=${{ matrix.CMAKE_BUILD_TYPE }}
+          cmake --build . --target install
