@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
   push:
+    tags:
+      - "**"
     branches:
       - main
   schedule:
@@ -18,15 +20,18 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
       - name: Generate config
-        id: GENERATE-CONFIG
+        id: generate-config
         uses: birth-software/github-config@v2
   build:
     needs: generate-config
+    permissions: write-all
     strategy:
       matrix:
         os: ${{ fromJSON(needs.generate-config.outputs.BIRTH_GITHUB_TARGETS) }}
         CMAKE_BUILD_TYPE: ${{ fromJSON(needs.generate-config.outputs.BIRTH_CMAKE_BUILD_TYPES) }}
     runs-on: ${{ matrix.os }}
+    env:
+      ZLIB_INSTALL_DIRECTORY: zlib
     steps:
       - uses: actions/checkout@v4
       - uses: birth-software/github-setup@v2
@@ -34,5 +39,20 @@ jobs:
         shell: bash
         run: |
           set -ex
-          cmake . -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_ASM_COMPILER=clang -DCMAKE_INSTALL_PREFIX="zlib" -DCMAKE_BUILD_TYPE=${{ matrix.CMAKE_BUILD_TYPE }}
+          ROOT_DIR=$(pwd)
+          cmake . -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_ASM_COMPILER=clang -DCMAKE_INSTALL_PREFIX="$ROOT_DIR/$ZLIB_INSTALL_DIRECTORY" -DCMAKE_BUILD_TYPE=${{ matrix.CMAKE_BUILD_TYPE }}
           cmake --build . --target install
+          cd $ROOT_DIR
+          ZLIB_BASENAME=zlib-$BIRTH_ARCH-$BIRTH_OS-${{ matrix.CMAKE_BUILD_TYPE }}
+          7z a -t7z -m0=lzma2 -mx=9 -mfb=64 -md=32m -ms=on $ZLIB_BASENAME.7z $ROOT_DIR/$ZLIB_INSTALL_DIRECTORY
+          b2sum $ZLIB_BASENAME.7z > $ZLIB_BASENAME.7z.b2sum
+          echo "ZLIB_BASENAME=$ZLIB_BASENAME" >> $GITHUB_ENV
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: | 
+            ${{env.ZLIB_BASENAME}}.7z
+            ${{env.ZLIB_BASENAME}}.7z.b2sum
